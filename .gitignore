@@ -1,0 +1,7 @@
+node_modules/
+backend/.env
+dist/
+frontend/.env
+
+coverage/
+*.log
