@@ -1,6 +1,15 @@
 import React from "react"
+import { useAuth } from "../context/AuthContext.jsx"
 
 const Login = () => {
+
+  /* ────────────────────────────────────────────────────────────
+     Auth context — provides login() and register() functions.
+     These call the real API and update global auth state.
+     When either succeeds, App.jsx sees isAuthenticated = true
+     and switches away from this Login screen.
+  ──────────────────────────────────────────────────────────── */
+  const { login, register } = useAuth()
 
   /* ============================================================
      STATE 1 — isRegister
@@ -22,7 +31,7 @@ const Login = () => {
 
   /* ============================================================
      STATE 3 — errors
-     One object holds all validation error messages.
+     Holds both frontend and backend field-level validation messages.
      Empty string = no error for that field.
   ============================================================ */
   const [errors, setErrors] = React.useState({
@@ -31,6 +40,22 @@ const Login = () => {
     password: "",
     confirmPassword: "",
   })
+
+  /* ============================================================
+     STATE 4 — isLoading (NEW)
+     True while the API request is in flight.
+     Disables the submit button to prevent double-submission.
+  ============================================================ */
+  const [isLoading, setIsLoading] = React.useState(false)
+
+  /* ============================================================
+     STATE 5 — serverError (NEW)
+     General error message from the server that does not belong
+     to a specific field. E.g. "Invalid email or password" (401),
+     "Email already exists" (409), "Internal Server Error" (500).
+     Displayed below the submit button.
+  ============================================================ */
+  const [serverError, setServerError] = React.useState("")
 
   /* ============================================================
      handleChange
@@ -44,12 +69,21 @@ const Login = () => {
 
     setFormData((prev) => ({ ...prev, [name]: value }))
     setErrors((prev) => ({ ...prev, [name]: "" }))
+
+    /*
+      Also clear the general server error when the user starts
+      typing again — they're attempting to fix the problem.
+    */
+    if (serverError) setServerError("")
   }
 
   /* ============================================================
-     validate
-     Checks all rules, builds a newErrors object, calls setErrors,
-     then returns true (valid) or false (has errors).
+     validate — frontend validation
+     Runs BEFORE the API call to catch obvious mistakes early
+     and save an unnecessary network round-trip.
+
+     NOTE: Password minimum is 8 characters — matching the backend
+     Zod schema in auth.dto.js. Previously it was 6.
   ============================================================ */
   const validate = () => {
     const newErrors = {
@@ -60,7 +94,9 @@ const Login = () => {
     }
 
     if (isRegister && formData.name.trim() === "") {
-      newErrors.name = "Full name is required"
+      newErrors.name = "Username is required"
+    } else if (isRegister && formData.name.trim().length < 3) {
+      newErrors.name = "Username must be at least 3 characters"
     }
 
     if (formData.email.trim() === "") {
@@ -71,8 +107,12 @@ const Login = () => {
 
     if (formData.password === "") {
       newErrors.password = "Password is required"
-    } else if (formData.password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters"
+    } else if (formData.password.length < 8) {
+      /*
+        8 characters — matches auth.dto.js backend validation.
+        If you change this on the backend, change it here too.
+      */
+      newErrors.password = "Password must be at least 8 characters"
     }
 
     if (isRegister && formData.confirmPassword === "") {
@@ -88,15 +128,138 @@ const Login = () => {
   }
 
   /* ============================================================
-     handleSubmit
-     Prevents default page reload, runs validation,
-     logs form data if valid.
+     handleBackendErrors
+     Parses the error response from the server and maps it to
+     the appropriate state (field errors or general server error).
+
+     TWO types of errors come back from the backend:
+
+     TYPE 1 — Zod validation errors (status 400):
+     {
+       success: false,
+       message: "Validation failed",
+       errors: { username: ["too short"], email: ["invalid"] }
+     }
+     → Map these to the errors state so they appear beside the fields.
+
+     TYPE 2 — General API errors (status 401, 409, 500):
+     {
+       success: false,
+       message: "Email already exists",
+       errors: []
+     }
+     → Display message in serverError state below the submit button.
   ============================================================ */
-  const handleSubmit = (e) => {
+  const handleBackendErrors = (error) => {
+    if (!error.response) {
+      /*
+        No response = network error (backend not running, no internet).
+        This is NOT a 4xx/5xx — it's a failed request entirely.
+      */
+      setServerError("Cannot connect to server. Make sure the backend is running.")
+      return
+    }
+
+    const { data } = error.response
+
+    /*
+      Check if errors is an object with field keys (Zod validation error).
+      We check it's a plain object, not an array.
+    */
+    const hasFieldErrors =
+      data.errors &&
+      typeof data.errors === "object" &&
+      !Array.isArray(data.errors) &&
+      Object.keys(data.errors).length > 0
+
+    if (hasFieldErrors) {
+      /*
+        Map backend field names to our form's field names.
+        The backend uses "username" — our form uses "name".
+        All other fields are the same on both sides.
+      */
+      const fieldMap = {
+        username: "name",
+        email: "email",
+        password: "password",
+      }
+
+      const mappedErrors = {}
+      Object.keys(data.errors).forEach((backendField) => {
+        const formField = fieldMap[backendField] || backendField
+        /*
+          Zod returns arrays of messages. We take the first one.
+          e.g. ["Password must be at least 8 characters"] → first element.
+        */
+        mappedErrors[formField] = data.errors[backendField][0]
+      })
+
+      setErrors((prev) => ({ ...prev, ...mappedErrors }))
+    } else {
+      /*
+        General error — display the server's message directly.
+        e.g. "Invalid email or password", "Email already exists"
+      */
+      setServerError(data.message || "Something went wrong. Please try again.")
+    }
+  }
+
+  /* ============================================================
+     handleSubmit — REPLACED with real API call
+     1. Prevent default form submission
+     2. Run frontend validation
+     3. Set loading state
+     4. Call the appropriate API function from AuthContext
+     5. On success → AuthContext sets user → App.jsx re-renders
+     6. On failure → parse error and display it
+  ============================================================ */
+  const handleSubmit = async (e) => {
     e.preventDefault()
+
     const isValid = validate()
     if (!isValid) return
-    console.log("Form submitted:", formData)
+
+    setIsLoading(true)
+    setServerError("")
+
+    try {
+      if (isRegister) {
+        /*
+          FIELD MAPPING:
+          Our form uses "name" (labeled "Full Name").
+          The backend schema (auth.dto.js) expects "username".
+          We map it here so the API receives the correct key.
+          The backend Zod schema will validate it as "username".
+        */
+        await register({
+          username: formData.name,
+          email: formData.email,
+          password: formData.password,
+          role: "student", // defaulting to student — no UI selector added
+        })
+      } else {
+        await login({
+          email: formData.email,
+          password: formData.password,
+        })
+      }
+
+      /*
+        If we reach here, the API call succeeded.
+        AuthContext has stored the user in state.
+        App.jsx watches isAuthenticated and will re-render
+        to show the dashboard. No navigation needed here.
+      */
+
+    } catch (error) {
+      handleBackendErrors(error)
+    } finally {
+      /*
+        Always re-enable the button whether the request
+        succeeded or failed.
+      */
+      setIsLoading(false)
+    }
   }
 
   /* ============================================================
@@ -112,12 +275,14 @@ const Login = () => {
     setIsRegister(true)
     setFormData(resetState())
     setErrors(resetState())
+    setServerError("")
   }
 
   const toggleToLogin = () => {
     setIsRegister(false)
     setFormData(resetState())
     setErrors(resetState())
+    setServerError("")
   }
 
   return (
@@ -362,12 +527,34 @@ const Login = () => {
             </div>
           )}
 
-          {/* ── Submit Button ── */}
+          {/* ── Server Error Message (NEW) ──
+              Displays general backend errors that are not tied to a specific field.
+              Examples: "Invalid email or password", "Email already exists"
+              Only renders when serverError is non-empty.
+          */}
+          {serverError && (
+            <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+              <p className="text-sm text-red-400">{serverError}</p>
+            </div>
+          )}
+
+          {/* ── Submit Button ──
+              disabled during loading to prevent double-submission.
+              The text and opacity change to give visual feedback.
+          */}
           <button
             type="submit"
-            className="w-full rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-500 py-3 text-base font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/30 active:scale-[0.98]"
+            disabled={isLoading}
+            className="w-full rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-cyan-500 py-3 text-base font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-cyan-500/30 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
           >
-            {isRegister ? "Create Account" : "Sign In"}
+            {/*
+              Show different text based on loading state.
+              isLoading true → "Signing in..." / "Creating account..."
+              isLoading false → "Sign In" / "Create Account"
+            */}
+            {isLoading
+              ? (isRegister ? "Creating account..." : "Signing in...")
+              : (isRegister ? "Create Account" : "Sign In")}
           </button>
 
           {/* ── Mode Toggle Link ── */}
