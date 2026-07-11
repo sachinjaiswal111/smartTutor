@@ -1,7 +1,26 @@
+import "dotenv/config";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 
-import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from "../db/schema/index.js";
+// console.log(Object.keys(schema));
 
-const db = drizzle(process.env.DATABASE_URL);
+const client = postgres(process.env.SUPPA_DATABASE_URI, {
 
-console.log(db);
-// const result = await db.execute('select 1');
+  prepare: false,
+  max: 10 
+});
+
+export const db = drizzle({ client: client });
+
+export async function connectDB() {
+  try {
+    await client`SELECT 1`;
+    console.log("✅ PostgreSQL Connected");
+  } catch (error) {
+    console.error("❌ Database Connection Failed:", error);
+    process.exit(1);
+  }
+}
+
+export { client };
