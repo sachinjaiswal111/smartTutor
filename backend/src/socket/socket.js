@@ -3,7 +3,7 @@ import { registerWebRTCEvents } from "./webrtc.socket.js";
 import {
   addUserSocket,
   removeUserSocket,
-} from "./socketStore.js";
+} from "./scoketStore.js";
 
 export const registerSocketHandlers = (io) => {
   io.on("connection", (socket) => {

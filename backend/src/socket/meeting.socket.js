@@ -1,5 +1,7 @@
-import { validateMeetingConnection } from "../services/socket.service.js";
-import { getMeetingParticipants } from "../services/socket.service.js";
+import {
+  validateMeetingConnection,
+  getMeetingParticipants,
+} from "../services/scoket.service.js";
 
 export const registerMeetingEvents = (io, socket) => {
   socket.on("meeting:join", async ({ meetingCode }, callback) => {
@@ -12,11 +14,14 @@ export const registerMeetingEvents = (io, socket) => {
       socket.join(meetingCode);
       const participants = await getMeetingParticipants(meeting.id);
 
-      io.to(meetingCode).emit("participant:joined", {
-        userId: socket.user.id,
+      // io.to(meetingCode).emit("participant:joined", {
+      //   userId: socket.user.id,
+      //   username: socket.user.username,
+      // });
+      socket.to(meetingCode).emit("participant:joined", {
+        id: socket.user.id,
         username: socket.user.username,
       });
-
       callback({
         success: true,
         message: "Joined meeting successfully.",

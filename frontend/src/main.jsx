@@ -1,31 +1,44 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.jsx'
-import { AuthProvider } from './context/AuthContext.jsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
 
-/*
-  main.jsx
-  ========
-  Entry point of the React application.
+import { Provider } from "react-redux";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { BrowserRouter } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 
-  WHY AuthProvider WRAPS App:
-  AuthProvider must be the outermost wrapper so that every component
-  in the tree — including App and Login — can call useAuth().
+import App from "./App.jsx";
+import { store } from "./store/store.js";
+import AuthProvider from "./providers/AuthProvider";
+import "./index.css";
 
-  If AuthProvider were inside App, then App itself could not use useAuth().
-  If it were not here at all, useAuth() would throw:
-    "useAuth must be used inside <AuthProvider>"
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      staleTime: 1000 * 60 * 5,
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      retry: 1,
+    },
+  },
+});
 
-  HIERARCHY:
-    StrictMode        → development checks (double-renders, deprecated APIs)
-      AuthProvider    → provides auth state to the entire tree
-        App           → reads auth state and renders the correct screen
-*/
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById("root")).render(
   <StrictMode>
+    <Provider store={store}>
+     <QueryClientProvider client={queryClient}>
+  <BrowserRouter>
     <AuthProvider>
       <App />
     </AuthProvider>
-  </StrictMode>,
-)
+
+    <Toaster position="top-right" />
+  </BrowserRouter>
+
+  <ReactQueryDevtools initialIsOpen={false} />
+</QueryClientProvider>
+    </Provider>
+  </StrictMode>
+);

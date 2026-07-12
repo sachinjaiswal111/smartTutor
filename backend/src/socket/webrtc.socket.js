@@ -1,5 +1,5 @@
 import { SOCKET_EVENTS } from "./constants.js";
-import { getUserSocket } from "./socketStore.js";
+import { getUserSocket } from "./scoketStore.js";
 
 export const registerWebRTCEvents = (io, socket) => {
 
