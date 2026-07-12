@@ -4,4 +4,4 @@ dist/
 frontend/.env
 
 coverage/
-*.log
+*.log 
